@@ -1,4 +1,4 @@
-import type { PodMetrics, TaskRow, WeeklyReport } from "./types";
+import type { ClientBreakdown, PodMetrics, PoMetrics, TaskRow, WeeklyReport } from "./types";
 import { fetchLatestSnapshot } from "./notion";
 import { isWithinWeek } from "./week";
 
@@ -10,7 +10,7 @@ function pct(n: number, total: number): number {
   return Math.round((n / total) * 1000) / 10; // one decimal place
 }
 
-function summarize(pod: string, tasks: TaskRow[], weekStart: string, weekEnd: string): Omit<PodMetrics, "wowCompletionChange" | "netTaskChange"> {
+function summarize(groupName: string, tasks: TaskRow[], weekStart: string, weekEnd: string): Omit<PodMetrics, "wowCompletionChange" | "netTaskChange"> {
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status === "Done").length;
   const inProgress = tasks.filter((t) => t.status === "In progress").length;
@@ -18,7 +18,7 @@ function summarize(pod: string, tasks: TaskRow[], weekStart: string, weekEnd: st
   const newThisWeek = tasks.filter((t) => isWithinWeek(t.createdTime, weekStart, weekEnd)).length;
 
   return {
-    pod,
+    pod: groupName,
     total,
     completed,
     inProgress,
@@ -28,6 +28,20 @@ function summarize(pod: string, tasks: TaskRow[], weekStart: string, weekEnd: st
     pctInProgress: pct(inProgress, total),
     pctNotStarted: pct(notStarted, total),
   };
+}
+
+function summarizeClients(tasks: TaskRow[]): ClientBreakdown[] {
+  const clients = Array.from(new Set(tasks.map((t) => t.client).filter((c): c is string => Boolean(c)))).sort();
+  return clients
+    .map((client) => {
+      const clientTasks = tasks.filter((t) => t.client === client);
+      const total = clientTasks.length;
+      const completed = clientTasks.filter((t) => t.status === "Done").length;
+      const inProgress = clientTasks.filter((t) => t.status === "In progress").length;
+      const notStarted = clientTasks.filter((t) => t.status === "Not started" || !t.status).length;
+      return { client, total, completed, inProgress, notStarted, pctCompleted: pct(completed, total) };
+    })
+    .sort((a, b) => b.total - a.total);
 }
 
 /** Which tasks belong to the given week, per WEEK_BASIS. */
@@ -48,29 +62,3 @@ async function withDelta(base: Omit<PodMetrics, "wowCompletionChange" | "netTask
   const netTaskChange = base.completed - base.newThisWeek;
   return { ...base, wowCompletionChange, netTaskChange };
 }
-
-export async function buildWeeklyReport(allTasks: TaskRow[], weekStart: string, weekEnd: string): Promise<WeeklyReport> {
-  const weekTasks = tasksForWeek(allTasks, weekStart, weekEnd);
-
-  const pods = Array.from(new Set(weekTasks.map((t) => t.pod).filter((p): p is string => Boolean(p)))).sort();
-
-  const overallBase = summarize(ALL_PODS_LABEL, weekTasks, weekStart, weekEnd);
-  const overall = await withDelta(overallBase, weekStart);
-
-  const byPod: PodMetrics[] = [];
-  for (const pod of pods) {
-    const base = summarize(pod, weekTasks.filter((t) => t.pod === pod), weekStart, weekEnd);
-    byPod.push(await withDelta(base, weekStart));
-  }
-
-  return {
-    weekStart,
-    weekEnd,
-    generatedAt: new Date().toISOString(),
-    overall,
-    byPod,
-    hasPriorSnapshot: overall.wowCompletionChange !== null,
-  };
-}
-
-export { ALL_PODS_LABEL };
