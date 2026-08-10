@@ -112,15 +112,19 @@ export async function fetchAllTasks(): Promise<TaskRow[]> {
   }));
 }
 
-/** Look up the most recent archived snapshot for a given pod at or before a given week. */
-export async function fetchLatestSnapshot(pod: string, beforeWeekStart: string): Promise<ArchiveSnapshot | null> {
+/**
+ * Look up up to `limit` archived snapshots for a given pod, strictly before a given week,
+ * returned oldest -> newest (chronological), ready to feed straight into a trend sparkline.
+ * The most recent entry (last in the array) doubles as the "prior week" for WoW deltas.
+ */
+export async function fetchRecentSnapshots(pod: string, beforeWeekStart: string, limit = 6): Promise<ArchiveSnapshot[]> {
   const dataSourceId = process.env.NOTION_ARCHIVE_DATA_SOURCE_ID;
-  if (!dataSourceId) return null;
+  if (!dataSourceId) return [];
 
   const res = await notionRequest(`/data_sources/${dataSourceId}/query`, {
     method: "POST",
     body: JSON.stringify({
-      page_size: 5,
+      page_size: limit,
       filter: {
         and: [
           { property: "Pod", select: { equals: pod } },
@@ -131,19 +135,20 @@ export async function fetchLatestSnapshot(pod: string, beforeWeekStart: string):
     }),
   });
 
-  const page = res.results?.[0];
-  if (!page) return null;
-  const props = page.properties;
-  return {
-    pod,
-    weekStart: props["Week Start"]?.date?.start ?? "",
-    total: props["Total Tasks"]?.number ?? 0,
-    completed: props["Completed"]?.number ?? 0,
-    inProgress: props["In Progress"]?.number ?? 0,
-    notStarted: props["Not Started"]?.number ?? 0,
-    newThisWeek: props["New Tasks This Week"]?.number ?? 0,
-    pctCompleted: props["Pct Completed"]?.number ?? 0,
-  };
+  const rows: ArchiveSnapshot[] = (res.results ?? []).map((page: any) => {
+    const props = page.properties;
+    return {
+      pod,
+      weekStart: props["Week Start"]?.date?.start ?? "",
+      total: props["Total Tasks"]?.number ?? 0,
+      completed: props["Completed"]?.number ?? 0,
+      inProgress: props["In Progress"]?.number ?? 0,
+      notStarted: props["Not Started"]?.number ?? 0,
+      newThisWeek: props["New Tasks This Week"]?.number ?? 0,
+      pctCompleted: props["Pct Completed"]?.number ?? 0,
+    };
+  });
+  return rows.reverse();
 }
 
 /** Write (or overwrite) this week's snapshot row for a pod into the archive database. */
