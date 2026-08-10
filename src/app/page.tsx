@@ -95,6 +95,7 @@ function TrendStatCard({
   points: number[];
   color: string;
 }) {
+  const hasTrend = points.length > 1;
   return (
     <div className="relative overflow-hidden bg-surface border border-hairline rounded-xl p-4 flex-1 min-w-[230px] shadow-sm">
       <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: color }} />
@@ -103,10 +104,12 @@ function TrendStatCard({
           <div className="text-[11px] uppercase tracking-wide text-ink-muted mb-1.5 font-medium">{label}</div>
           <div className={`text-lg font-semibold tabular-nums ${valueClass}`}>{value}</div>
         </div>
-        <Sparkline points={points} color={color} width={78} height={30} />
+        {hasTrend && <Sparkline points={points} color={color} width={78} height={30} />}
       </div>
-      <div className="text-[10px] text-ink-muted mt-1.5">
-        {points.length <= 1 ? "Tracking starts this week — check back next week" : `${points.length} weeks tracked`}
+      <div className="text-[11px] text-ink-muted mt-2 leading-snug">
+        {hasTrend
+          ? `Line shows the last ${points.length} weeks — this one's the most recent.`
+          : "This is your first tracked week — there's nothing to compare yet. Click \"Generate Report\" again next week and this card will show how completion is trending."}
       </div>
     </div>
   );
@@ -186,7 +189,9 @@ function GroupCard({
           </span>
           <span className="text-xs text-ink-muted tabular-nums flex items-center gap-2.5 shrink-0">
             {metrics.total} tasks
-            <Sparkline points={metrics.trend.map((t) => t.pctCompleted)} color={color} width={50} height={18} />
+            {metrics.trend.length > 1 && (
+              <Sparkline points={metrics.trend.map((t) => t.pctCompleted)} color={color} width={50} height={18} />
+            )}
             <span className={`inline-block text-ink-muted transition-transform ${expanded ? "rotate-180" : ""}`}>▾</span>
           </span>
         </div>
@@ -333,7 +338,7 @@ export default function DashboardPage() {
             <button
               onClick={() => generate("pdf")}
               disabled={!report || generating !== null}
-              className="bg-white text-ink-primary rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
+              className="bg-white text-gray-900 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity shadow-sm"
             >
               {generating === "pdf" ? "Generating…" : "Generate Report (PDF)"}
             </button>
@@ -405,25 +410,25 @@ export default function DashboardPage() {
             </p>
 
             <div className="flex gap-4 mb-4 flex-wrap">
-              <StatCard label="Total tasks" value={`${report.overall.total}`} />
+              <StatCard label="Total tasks" value={`${report.overall.total}`} sub="tasks tracked this week" />
               <StatCard
                 label="Completed"
                 value={`${report.overall.completed}`}
                 valueClass="text-status-good"
-                sub={`${report.overall.pctCompleted}% of ${report.overall.total}`}
+                sub={`${report.overall.pctCompleted}% of all ${report.overall.total} tasks are done`}
                 accent="var(--status-good)"
               />
               <StatCard
                 label="In progress"
                 value={`${report.overall.inProgress}`}
                 valueClass="text-series-1"
-                sub={`${report.overall.pctInProgress}% of ${report.overall.total}`}
+                sub={`${report.overall.pctInProgress}% of all ${report.overall.total} tasks are in progress`}
                 accent="var(--series-1)"
               />
               <StatCard
                 label="Not started"
                 value={`${report.overall.notStarted}`}
-                sub={`${report.overall.pctNotStarted}% of ${report.overall.total}`}
+                sub={`${report.overall.pctNotStarted}% of all ${report.overall.total} tasks haven't started`}
                 accent="var(--text-muted)"
               />
             </div>
