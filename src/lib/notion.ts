@@ -44,7 +44,12 @@ function plainTitle(prop: any): string {
   return (prop.title ?? []).map((t: any) => t.plain_text ?? "").join("");
 }
 
-function pageToTaskRow(page: any): TaskRow {
+function firstRelationId(prop: any): string | null {
+  if (!prop || prop.type !== "relation" || !Array.isArray(prop.relation)) return null;
+  return prop.relation[0]?.id ?? null;
+}
+
+function pageToTaskRow(page: any): TaskRow & { clientId: string | null } {
   const props = page.properties ?? {};
   const statusName = props.Status?.status?.name ?? null;
   const dueDate = props["Due date"]?.date?.start ?? null;
@@ -58,13 +63,36 @@ function pageToTaskRow(page: any): TaskRow {
     createdTime: page.created_time,
     pod: pods[0] ?? null,
     po: pos[0] ?? null,
+    client: null, // resolved afterwards, once the client name map is fetched
+    clientId: firstRelationId(props["Project Tracker Client"]),
   };
 }
 
-/** Fetch every row from the Client_Task Tracker data source, fully paginated. */
+/** Maps every Project Tracker page ID -> its Client Name, so tasks can be labeled by client. */
+async function fetchClientNameMap(): Promise<Record<string, string>> {
+  const dataSourceId = requireEnv("NOTION_PROJECT_DATA_SOURCE_ID");
+  const map: Record<string, string> = {};
+  let cursor: string | undefined;
+  do {
+    const body: any = { page_size: 100 };
+    if (cursor) body.start_cursor = cursor;
+    const res = await notionRequest(`/data_sources/${dataSourceId}/query`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    for (const page of res.results ?? []) {
+      const name = plainTitle(page.properties?.["Client Name"]);
+      if (name) map[page.id] = name;
+    }
+    cursor = res.has_more ? res.next_cursor : undefined;
+  } while (cursor);
+  return map;
+}
+
+/** Fetch every row from the Client_Task Tracker data source, fully paginated, with client names resolved. */
 export async function fetchAllTasks(): Promise<TaskRow[]> {
   const dataSourceId = requireEnv("NOTION_TASK_DATA_SOURCE_ID");
-  const rows: TaskRow[] = [];
+  const rows: (TaskRow & { clientId: string | null })[] = [];
   let cursor: string | undefined;
   do {
     const body: any = { page_size: 100 };
@@ -76,7 +104,12 @@ export async function fetchAllTasks(): Promise<TaskRow[]> {
     for (const page of res.results ?? []) rows.push(pageToTaskRow(page));
     cursor = res.has_more ? res.next_cursor : undefined;
   } while (cursor);
-  return rows;
+
+  const clientNames = await fetchClientNameMap();
+  return rows.map(({ clientId, ...row }) => ({
+    ...row,
+    client: clientId ? clientNames[clientId] ?? null : null,
+  }));
 }
 
 /** Look up the most recent archived snapshot for a given pod at or before a given week. */
