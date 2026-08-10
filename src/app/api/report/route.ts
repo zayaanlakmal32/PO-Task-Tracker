@@ -17,9 +17,10 @@ export async function POST(req: NextRequest) {
     const tasks = await fetchAllTasks();
     const report = await buildWeeklyReport(tasks, weekStart, weekEnd);
 
-    // Persist this week's snapshot for every pod + overall, so next week's report can compute WoW deltas.
+    // Persist this week's snapshot for every pod, every PO, and overall, so next week's report
+    // can compute WoW deltas and trend sparklines for all three groupings (not just PODs).
     await Promise.all(
-      [report.overall, ...report.byPod].map((p) =>
+      [report.overall, ...report.byPod, ...report.byPo].map((p) =>
         upsertSnapshot({
           pod: p.pod,
           weekStart,
