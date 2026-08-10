@@ -15,8 +15,8 @@ function deltaColor(v: number | null) {
 
 function deltaText(v: number | null): string {
   if (v === null) return "n/a (first report)";
-  const arrow = v > 0 ? "▲" : v < 0 ? "▼" : "–";
-  return `${arrow} ${Math.abs(v).toFixed(1)} pts vs last week`;
+  const sign = v > 0 ? "+" : v < 0 ? "-" : "";
+  return `${sign}${Math.abs(v).toFixed(1)} pts vs last week`;
 }
 
 export async function renderReportPdf(report: WeeklyReport): Promise<Uint8Array> {
@@ -70,7 +70,7 @@ export async function renderReportPdf(report: WeeklyReport): Promise<Uint8Array>
   draw(deltaText(o.wowCompletionChange), { size: 12, f: bold, color: deltaColor(o.wowCompletionChange) });
   y -= 18;
 
-  draw("Net task change (completed − new)", { size: 9, color: MUTED });
+  draw("Net task change (completed - new)", { size: 9, color: MUTED });
   y -= 13;
   const net = o.netTaskChange;
   draw(net === null ? "n/a (first report)" : `${net >= 0 ? "+" : ""}${net}`, {
