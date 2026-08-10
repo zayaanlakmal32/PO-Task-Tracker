@@ -206,12 +206,21 @@ function trendCard(
   c.page.drawText(label, { x: x + 10, y: top - 18, size: 7.5, font: c.font, color: MUTED });
   c.page.drawText(value, { x: x + 10, y: top - 40, size: 14, font: c.bold, color: valueColor });
 
-  const sparkW = 92;
-  const sparkH = 24;
-  const sparkX = x + width - sparkW - 12;
-  sparkline(c.page, sparkX, top - height + 16, sparkW, sparkH, points, valueColor);
-  const weeksLabel = points.length <= 1 ? "tracking starts this week" : `${points.length} weeks tracked`;
-  c.page.drawText(weeksLabel, { x: sparkX, y: top - height + 6, size: 6.3, font: c.font, color: FAINT });
+  if (points.length > 1) {
+    const sparkW = 92;
+    const sparkH = 24;
+    const sparkX = x + width - sparkW - 12;
+    sparkline(c.page, sparkX, top - height + 16, sparkW, sparkH, points, valueColor);
+    c.page.drawText(`${points.length} weeks tracked`, { x: sparkX, y: top - height + 6, size: 6.3, font: c.font, color: FAINT });
+  } else {
+    c.page.drawText("First week tracked - a trend line appears from next report.", {
+      x: x + 10,
+      y: top - 54,
+      size: 6.5,
+      font: c.font,
+      color: FAINT,
+    });
+  }
 }
 
 function legend(c: ReportCanvas) {
@@ -264,7 +273,9 @@ function groupCard(c: ReportCanvas, m: PodMetrics, nested: Breakdown[], nestedLa
   const barW = CONTENT_W - 160;
   stackedBar(c, LEFT, barW, m);
   const sparkX = RIGHT - 84;
-  sparkline(c.page, sparkX, c.y, 84, 9, m.trend.map((t) => t.pctCompleted), deltaColor(m.wowCompletionChange));
+  if (m.trend.length > 1) {
+    sparkline(c.page, sparkX, c.y, 84, 9, m.trend.map((t) => t.pctCompleted), deltaColor(m.wowCompletionChange));
+  }
   c.y -= 18;
   c.text(wowCell(m.wowCompletionChange) === "n/a" ? "vs last wk: n/a" : `vs last wk: ${wowCell(m.wowCompletionChange)}`, {
     x: sparkX,
@@ -347,10 +358,10 @@ export async function renderReportPdf(report: WeeklyReport): Promise<Uint8Array>
   c.sectionTitle("Overall");
   const o = report.overall;
   const cardW = (CONTENT_W - 3 * 10) / 4;
-  statCard(c, LEFT, cardW, "TOTAL TASKS", `${o.total}`, INK);
-  statCard(c, LEFT + (cardW + 10), cardW, "COMPLETED", `${o.completed}`, DONE_COLOR, `${o.pctCompleted}% of ${o.total}`);
-  statCard(c, LEFT + 2 * (cardW + 10), cardW, "IN PROGRESS", `${o.inProgress}`, PROGRESS_COLOR, `${o.pctInProgress}% of ${o.total}`);
-  statCard(c, LEFT + 3 * (cardW + 10), cardW, "NOT STARTED", `${o.notStarted}`, NOT_STARTED_TEXT, `${o.pctNotStarted}% of ${o.total}`);
+  statCard(c, LEFT, cardW, "TOTAL TASKS", `${o.total}`, INK, "tracked this week");
+  statCard(c, LEFT + (cardW + 10), cardW, "COMPLETED", `${o.completed}`, DONE_COLOR, `${o.pctCompleted}% of all ${o.total}`);
+  statCard(c, LEFT + 2 * (cardW + 10), cardW, "IN PROGRESS", `${o.inProgress}`, PROGRESS_COLOR, `${o.pctInProgress}% of all ${o.total}`);
+  statCard(c, LEFT + 3 * (cardW + 10), cardW, "NOT STARTED", `${o.notStarted}`, NOT_STARTED_TEXT, `${o.pctNotStarted}% of all ${o.total}`);
   c.y -= 74;
 
   const cardW2 = (CONTENT_W - 10) / 2;
