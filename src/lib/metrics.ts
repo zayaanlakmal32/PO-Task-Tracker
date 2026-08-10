@@ -62,3 +62,41 @@ async function withDelta(base: Omit<PodMetrics, "wowCompletionChange" | "netTask
   const netTaskChange = base.completed - base.newThisWeek;
   return { ...base, wowCompletionChange, netTaskChange };
 }
+
+export async function buildWeeklyReport(allTasks: TaskRow[], weekStart: string, weekEnd: string): Promise<WeeklyReport> {
+  const weekTasks = tasksForWeek(allTasks, weekStart, weekEnd);
+
+  const pods = Array.from(new Set(weekTasks.map((t) => t.pod).filter((p): p is string => Boolean(p)))).sort();
+  const pos = Array.from(new Set(weekTasks.map((t) => t.po).filter((p): p is string => Boolean(p)))).sort();
+
+  const overallBase = summarize(ALL_PODS_LABEL, weekTasks, weekStart, weekEnd);
+  const overall = await withDelta(overallBase, weekStart);
+
+  const byPod: PodMetrics[] = [];
+  for (const pod of pods) {
+    const base = summarize(pod, weekTasks.filter((t) => t.pod === pod), weekStart, weekEnd);
+    byPod.push(await withDelta(base, weekStart));
+  }
+
+  const byPo: PoMetrics[] = [];
+  for (const po of pos) {
+    const poTasks = weekTasks.filter((t) => t.po === po);
+    // Prefixed distinctly from POD archive rows ("POD - X") so WoW history never collides between the two groupings.
+    const base = summarize(`PO - ${po}`, poTasks, weekStart, weekEnd);
+    const withWow = await withDelta(base, weekStart);
+    byPo.push({ ...withWow, clients: summarizeClients(poTasks) });
+  }
+  byPo.sort((a, b) => b.total - a.total);
+
+  return {
+    weekStart,
+    weekEnd,
+    generatedAt: new Date().toISOString(),
+    overall,
+    byPod,
+    byPo,
+    hasPriorSnapshot: overall.wowCompletionChange !== null,
+  };
+}
+
+export { ALL_PODS_LABEL };
