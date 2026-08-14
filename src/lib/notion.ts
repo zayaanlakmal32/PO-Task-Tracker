@@ -28,17 +28,6 @@ async function notionRequest(path: string, init: RequestInit = {}): Promise<any>
   return res.json();
 }
 
-function rollupNames(prop: any): string[] {
-  if (!prop || prop.type !== "rollup" || !prop.rollup) return [];
-  const rollup = prop.rollup;
-  if (rollup.type === "array") {
-    return rollup.array
-      .map((item: any) => item?.select?.name ?? item?.status?.name ?? null)
-      .filter((x: string | null): x is string => Boolean(x));
-  }
-  return [];
-}
-
 function plainTitle(prop: any): string {
   if (!prop || prop.type !== "title") return "";
   return (prop.title ?? []).map((t: any) => t.plain_text ?? "").join("");
@@ -53,25 +42,33 @@ function pageToTaskRow(page: any): TaskRow & { clientId: string | null } {
   const props = page.properties ?? {};
   const statusName = props.Status?.status?.name ?? null;
   const dueDate = props["Due date"]?.date?.start ?? null;
-  const pods = rollupNames(props.Pod);
-  const pos = rollupNames(props.PO);
   return {
     id: page.id,
     title: plainTitle(props["Client Tasks"]) || "(untitled task)",
     status: (statusName as TaskRow["status"]) ?? null,
     dueDate,
     createdTime: page.created_time,
-    pod: pods[0] ?? null,
-    po: pos[0] ?? null,
-    client: null, // resolved afterwards, once the client name map is fetched
+    pod: null, // resolved afterwards from the Project Tracker roster, not the Pod rollup
+    po: null, // resolved afterwards from the Project Tracker roster, not the PO rollup
+    client: null, // resolved afterwards, once the roster is fetched
     clientId: firstRelationId(props["Project Tracker Client"]),
   };
 }
 
-/** Maps every Project Tracker page ID -> its Client Name, so tasks can be labeled by client. */
-async function fetchClientNameMap(): Promise<Record<string, string>> {
+/**
+ * Maps every Project Tracker page ID -> its Client Name / PO Name / POD, read straight off
+ * that database's own columns.
+ *
+ * Earlier versions of this app read a task's PO/Pod off rollup properties on the Client_Task
+ * Tracker side. Those rollups turned out to be unreliable - for a meaningful chunk of clients
+ * they simply never resolved, so those clients' tasks silently had no PO or POD at all and
+ * their whole PO could vanish from every report. Reading PO Name / POD directly from the
+ * Project Tracker row a task is linked to (via "Project Tracker Client") is the same data,
+ * straight from its source, with nothing in between that can fail to compute.
+ */
+async function fetchProjectRoster(): Promise<Record<string, { client: string; po: string | null; pod: string | null }>> {
   const dataSourceId = requireEnv("NOTION_PROJECT_DATA_SOURCE_ID");
-  const map: Record<string, string> = {};
+  const map: Record<string, { client: string; po: string | null; pod: string | null }> = {};
   let cursor: string | undefined;
   do {
     const body: any = { page_size: 100 };
@@ -82,14 +79,19 @@ async function fetchClientNameMap(): Promise<Record<string, string>> {
     });
     for (const page of res.results ?? []) {
       const name = plainTitle(page.properties?.["Client Name"]);
-      if (name) map[page.id] = name;
+      if (!name) continue;
+      map[page.id] = {
+        client: name,
+        po: page.properties?.["PO Name"]?.select?.name ?? null,
+        pod: page.properties?.["POD"]?.select?.name ?? null,
+      };
     }
     cursor = res.has_more ? res.next_cursor : undefined;
   } while (cursor);
   return map;
 }
 
-/** Fetch every row from the Client_Task Tracker data source, fully paginated, with client names resolved. */
+/** Fetch every row from the Client_Task Tracker data source, fully paginated, with client/PO/POD resolved. */
 export async function fetchAllTasks(): Promise<TaskRow[]> {
   const dataSourceId = requireEnv("NOTION_TASK_DATA_SOURCE_ID");
   const rows: (TaskRow & { clientId: string | null })[] = [];
@@ -105,11 +107,16 @@ export async function fetchAllTasks(): Promise<TaskRow[]> {
     cursor = res.has_more ? res.next_cursor : undefined;
   } while (cursor);
 
-  const clientNames = await fetchClientNameMap();
-  return rows.map(({ clientId, ...row }) => ({
-    ...row,
-    client: clientId ? clientNames[clientId] ?? null : null,
-  }));
+  const roster = await fetchProjectRoster();
+  return rows.map(({ clientId, ...row }) => {
+    const info = clientId ? roster[clientId] : undefined;
+    return {
+      ...row,
+      client: info?.client ?? null,
+      po: info?.po ?? null,
+      pod: info?.pod ?? null,
+    };
+  });
 }
 
 /**
