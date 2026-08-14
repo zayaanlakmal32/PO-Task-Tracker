@@ -52,34 +52,25 @@ function summarizeBreakdown(name: string, tasks: TaskRow[]): Breakdown {
   };
 }
 
-/** Group tasks by `po` or `client` into per-name breakdowns, sorted by task count descending. Nothing is dropped. */
-function groupBreakdown(tasks: TaskRow[], key: "po" | "client"): Breakdown[] {
-  const names = Array.from(new Set(tasks.map((t) => t[key]).filter((v): v is string => Boolean(v)))).sort();
+/**
+ * Group tasks by `po` or `client` into per-name breakdowns, sorted by task count descending.
+ *
+ * `roster` is the full list of names that should always appear here - e.g. every PO that has
+ * ever had a task under this POD, drawn from the whole tracker, not just this week. A name
+ * with no tasks this week still gets a row (0 total, 0/0/0), instead of quietly vanishing
+ * from the report just because nothing of theirs happens to be due this particular week.
+ */
+function groupBreakdown(tasks: TaskRow[], key: "po" | "client", roster: string[] = []): Breakdown[] {
+  const namesFromTasks = tasks.map((t) => t[key]).filter((v): v is string => Boolean(v));
+  const names = Array.from(new Set([...roster, ...namesFromTasks])).sort();
   return names
     .map((name) => summarizeBreakdown(name, tasks.filter((t) => t[key] === name)))
     .sort((a, b) => b.total - a.total);
 }
 
-/**
- * Which tasks belong to the given week's report.
- *
- * A large share of tasks in the tracker have no Due date at all (they're ongoing/backlog
- * work, not deadline-driven), and plenty of others have a due date from weeks ago that's
- * already passed. Filtering strictly by "due date falls inside this week" - the old
- * behavior - silently dropped every one of those, which meant entire POs (anyone whose
- * work wasn't due in that exact 7-day window) never showed up in any report at all.
- *
- * Instead: any task that's still open (Not started / In progress) always counts, no
- * matter its due date - that's real, current work and it should never be invisible.
- * A Done task counts toward the week whose window its due date falls into, as the closest
- * available proxy for "finished around then" (the tracker doesn't record a completion date).
- * Done tasks with no due date aren't attributed to any specific week.
- */
+/** Strictly the tasks due within this week's window - a task with no due date, or a due date outside it, isn't counted. */
 function tasksForWeek(tasks: TaskRow[], weekStart: string, weekEnd: string): TaskRow[] {
-  return tasks.filter((t) => {
-    if (t.status !== "Done") return true; // Not started / In progress / unset - always current
-    return Boolean(t.dueDate) && isWithinWeek(t.dueDate!, weekStart, weekEnd);
-  });
+  return tasks.filter((t) => Boolean(t.dueDate) && isWithinWeek(t.dueDate!, weekStart, weekEnd));
 }
 
 async function withDelta(
@@ -103,28 +94,36 @@ async function withDelta(
 export async function buildWeeklyReport(allTasks: TaskRow[], weekStart: string, weekEnd: string): Promise<WeeklyReport> {
   const weekTasks = tasksForWeek(allTasks, weekStart, weekEnd);
 
-  const pods = Array.from(new Set(weekTasks.map((t) => t.pod).filter((p): p is string => Boolean(p)))).sort();
-  const pos = Array.from(new Set(weekTasks.map((t) => t.po).filter((p): p is string => Boolean(p)))).sort();
+  // Roster = every POD/PO/client that has ever had a task in the tracker (all-time, not just
+  // this week). Used so a POD or PO with nothing due this particular week still gets listed
+  // with zero counts, instead of disappearing from the report entirely.
+  const pods = Array.from(new Set(allTasks.map((t) => t.pod).filter((p): p is string => Boolean(p)))).sort();
+  const pos = Array.from(new Set(allTasks.map((t) => t.po).filter((p): p is string => Boolean(p)))).sort();
 
   const overallBase = summarize(ALL_PODS_LABEL, weekTasks, weekStart, weekEnd);
   const overall = await withDelta(overallBase, weekStart);
 
   const byPod: PodDetail[] = [];
   for (const pod of pods) {
-    const podTasks = weekTasks.filter((t) => t.pod === pod);
-    const base = summarize(pod, podTasks, weekStart, weekEnd);
+    const podTasksThisWeek = weekTasks.filter((t) => t.pod === pod);
+    const posRosterForPod = Array.from(
+      new Set(allTasks.filter((t) => t.pod === pod).map((t) => t.po).filter((p): p is string => Boolean(p)))
+    ).sort();
+    const base = summarize(pod, podTasksThisWeek, weekStart, weekEnd);
     const withWow = await withDelta(base, weekStart);
-    // Every PO with at least one task under this POD this week, so nothing gets hidden.
-    byPod.push({ ...withWow, pos: groupBreakdown(podTasks, "po") });
+    byPod.push({ ...withWow, pos: groupBreakdown(podTasksThisWeek, "po", posRosterForPod) });
   }
 
   const byPo: PoDetail[] = [];
   for (const po of pos) {
-    const poTasks = weekTasks.filter((t) => t.po === po);
+    const poTasksThisWeek = weekTasks.filter((t) => t.po === po);
+    const clientsRosterForPo = Array.from(
+      new Set(allTasks.filter((t) => t.po === po).map((t) => t.client).filter((c): c is string => Boolean(c)))
+    ).sort();
     // Prefixed distinctly from POD archive rows ("POD - X") so WoW history never collides between the two groupings.
-    const base = summarize(`PO - ${po}`, poTasks, weekStart, weekEnd);
+    const base = summarize(`PO - ${po}`, poTasksThisWeek, weekStart, weekEnd);
     const withWow = await withDelta(base, weekStart);
-    byPo.push({ ...withWow, clients: groupBreakdown(poTasks, "client") });
+    byPo.push({ ...withWow, clients: groupBreakdown(poTasksThisWeek, "client", clientsRosterForPo) });
   }
   byPo.sort((a, b) => b.total - a.total);
 
