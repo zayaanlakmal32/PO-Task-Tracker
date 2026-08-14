@@ -349,7 +349,7 @@ export async function renderReportPdf(report: WeeklyReport): Promise<Uint8Array>
   c.y = PAGE_H - HEADER_H - 24;
 
   c.paragraph(
-    "\"vs last week\" compares this week's completion rate to the snapshot saved after last week's report; it reads n/a until a second week of history exists. Every POD section below lists all the POs working under it, and every PO section lists all the clients they serve - with counts alongside percentages.",
+    "Counts only tasks due this week. Every POD and PO that has ever had work in the tracker is listed below, even in weeks they have nothing due (shown as 0), so nobody is missing from the roster. \"vs last week\" compares this week's completion rate to the snapshot saved after last week's report; it reads n/a until a second week of history exists. Every POD section below lists all the POs working under it, and every PO section lists all the clients they serve - with counts alongside percentages.",
     { size: 8, color: MUTED }
   );
   c.y -= 12;
