@@ -403,6 +403,8 @@ export default function DashboardPage() {
         {report && (
           <>
             <p className="text-xs text-ink-muted mb-6 max-w-2xl">
+              Counts only tasks due this week. Every POD and PO that's ever had work in the tracker is listed below,
+              even in weeks they have nothing due (shown as 0), so nobody's missing from the roster.{" "}
               <strong className="text-ink-secondary">"vs last week"</strong> compares this week's numbers to a snapshot
               saved the last time someone clicked Generate Report.
               {!report.hasPriorSnapshot && " No snapshot exists yet for these groups — the trend cards below will fill in from next week's report."}
