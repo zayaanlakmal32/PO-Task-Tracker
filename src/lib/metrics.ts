@@ -3,7 +3,6 @@ import { fetchRecentSnapshots } from "./notion";
 import { isWithinWeek } from "./week";
 
 const ALL_PODS_LABEL = "All PODs";
-const WEEK_BASIS = (process.env.WEEK_BASIS ?? "due_date") as "due_date" | "created";
 const TREND_WEEKS = 6; // how many prior archived weeks to pull for sparklines
 
 function pct(n: number, total: number): number {
@@ -61,12 +60,25 @@ function groupBreakdown(tasks: TaskRow[], key: "po" | "client"): Breakdown[] {
     .sort((a, b) => b.total - a.total);
 }
 
-/** Which tasks belong to the given week, per WEEK_BASIS. */
+/**
+ * Which tasks belong to the given week's report.
+ *
+ * A large share of tasks in the tracker have no Due date at all (they're ongoing/backlog
+ * work, not deadline-driven), and plenty of others have a due date from weeks ago that's
+ * already passed. Filtering strictly by "due date falls inside this week" - the old
+ * behavior - silently dropped every one of those, which meant entire POs (anyone whose
+ * work wasn't due in that exact 7-day window) never showed up in any report at all.
+ *
+ * Instead: any task that's still open (Not started / In progress) always counts, no
+ * matter its due date - that's real, current work and it should never be invisible.
+ * A Done task counts toward the week whose window its due date falls into, as the closest
+ * available proxy for "finished around then" (the tracker doesn't record a completion date).
+ * Done tasks with no due date aren't attributed to any specific week.
+ */
 function tasksForWeek(tasks: TaskRow[], weekStart: string, weekEnd: string): TaskRow[] {
   return tasks.filter((t) => {
-    const anchor = WEEK_BASIS === "created" ? t.createdTime : t.dueDate;
-    if (!anchor) return false;
-    return isWithinWeek(anchor, weekStart, weekEnd);
+    if (t.status !== "Done") return true; // Not started / In progress / unset - always current
+    return Boolean(t.dueDate) && isWithinWeek(t.dueDate!, weekStart, weekEnd);
   });
 }
 
